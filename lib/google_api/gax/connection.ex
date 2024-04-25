@@ -34,7 +34,17 @@ defmodule GoogleApi.Gax.Connection do
       )
 
       plug(Tesla.Middleware.EncodeJson, engine: Poison)
-
+      plug(Tesla.Middleware.Compression, format: "gzip")
+      plug(Tesla.Middleware.Retry,
+        delay: 200,
+        max_retries: 5,
+        max_delay: 1_000,
+        should_retry: fn
+          {:ok, %{status: status}} when status >= 500 -> true
+          {:ok, _} -> false
+          {:error, _} -> true
+      end)
+      
       @doc """
       Configure a client connection using a provided OAuth2 token as a Bearer token
 
