@@ -37,6 +37,7 @@ defmodule GoogleApi.Gax.Connection do
       )
 
       plug(Tesla.Middleware.EncodeJson, engine: Poison)
+
       plug(Tesla.Middleware.Compression,
         format: "gzip",
         max_body_size:
@@ -55,8 +56,9 @@ defmodule GoogleApi.Gax.Connection do
           {:ok, %{status: status}} when status >= 500 -> true
           {:ok, _} -> false
           {:error, _} -> true
-      end)
-      
+        end
+      )
+
       @doc """
       Configure a client connection using a provided OAuth2 token as a Bearer token
 
@@ -111,13 +113,17 @@ defmodule GoogleApi.Gax.Connection do
       ## Returns
 
       *   `{:ok, Tesla.Env.t}` - If the call was successful
-      *   `{:error, reason}` - If the call failed
+      *   `{:error, reason}` - If the call failed, e.g. with
+          `Tesla.Middleware.Compression.Error` when over `:max_body_size`
       """
-      @spec execute(Tesla.Client.t(), GoogleApi.Gax.Request.t()) :: {:ok, Tesla.Env.t()}
+      @spec execute(Tesla.Client.t(), GoogleApi.Gax.Request.t()) ::
+              {:ok, Tesla.Env.t()} | {:error, any()}
       def execute(connection, request) do
         request
         |> GoogleApi.Gax.Connection.build_request()
         |> (&request(connection, &1)).()
+      rescue
+        e in Tesla.Middleware.Compression.Error -> {:error, e}
       end
     end
   end
