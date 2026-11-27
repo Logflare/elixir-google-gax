@@ -18,6 +18,15 @@ defmodule Gax.ConnectionTest do
 
   alias GoogleApi.Gax.{Connection, Request}
 
+  test "executes a request whose gzipped response cannot be decompressed" do
+    Tesla.Mock.mock(fn _ ->
+      %Tesla.Env{status: 200, headers: [{"content-encoding", "gzip"}], body: "not gzip"}
+    end)
+
+    assert {:error, %Tesla.Middleware.Compression.Error{}} =
+             TestClient.Connection.execute(TestClient.Connection.new(), Request.new())
+  end
+
   test "builds a basic request with a query" do
     request =
       Request.new()

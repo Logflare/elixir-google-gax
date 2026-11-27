@@ -17,6 +17,9 @@ defmodule GoogleApi.Gax.Connection do
   This module helps define and configure server connection.
   """
 
+  # Cap on a decompressed response body, guarding against decompression bombs
+  @default_max_body_size 32 * 1024 * 1024
+
   defmacro __using__(opts) do
     quote do
       use Tesla
@@ -34,7 +37,17 @@ defmodule GoogleApi.Gax.Connection do
       )
 
       plug(Tesla.Middleware.EncodeJson, engine: Poison)
-      plug(Tesla.Middleware.Compression, format: "gzip")
+
+      plug(Tesla.Middleware.Compression,
+        format: "gzip",
+        max_body_size:
+          Application.get_env(
+            unquote(Keyword.get(opts, :otp_app)),
+            :max_body_size,
+            unquote(Keyword.get(opts, :max_body_size, @default_max_body_size))
+          )
+      )
+
       plug(Tesla.Middleware.Retry,
         delay: 100,
         max_retries: 3,
@@ -43,8 +56,9 @@ defmodule GoogleApi.Gax.Connection do
           {:ok, %{status: status}} when status >= 500 -> true
           {:ok, _} -> false
           {:error, _} -> true
-      end)
-      
+        end
+      )
+
       @doc """
       Configure a client connection using a provided OAuth2 token as a Bearer token
 
@@ -99,13 +113,17 @@ defmodule GoogleApi.Gax.Connection do
       ## Returns
 
       *   `{:ok, Tesla.Env.t}` - If the call was successful
-      *   `{:error, reason}` - If the call failed
+      *   `{:error, reason}` - If the call failed, e.g. with
+          `Tesla.Middleware.Compression.Error` when over `:max_body_size`
       """
-      @spec execute(Tesla.Client.t(), GoogleApi.Gax.Request.t()) :: {:ok, Tesla.Env.t()}
+      @spec execute(Tesla.Client.t(), GoogleApi.Gax.Request.t()) ::
+              {:ok, Tesla.Env.t()} | {:error, any()}
       def execute(connection, request) do
         request
         |> GoogleApi.Gax.Connection.build_request()
         |> (&request(connection, &1)).()
+      rescue
+        e in Tesla.Middleware.Compression.Error -> {:error, e}
       end
     end
   end
@@ -175,7 +193,7 @@ defmodule GoogleApi.Gax.Connection do
   defp build_body(output, [], file_params) do
     body =
       Enum.reduce(file_params, Tesla.Multipart.new(), fn {file_name, file_path}, b ->
-        Tesla.Multipart.add_file(b, file_path, name: file_name)
+        Tesla.Multipart.add_file(b, file_path, name: to_string(file_name))
       end)
 
     Keyword.put(output, :body, body)
@@ -188,7 +206,7 @@ defmodule GoogleApi.Gax.Connection do
       Enum.reduce(body_params, body, fn {body_name, data}, b ->
         Tesla.Multipart.add_field(
           b,
-          body_name,
+          to_string(body_name),
           Poison.encode!(data),
           headers: [{:"Content-Type", "application/json"}]
         )
@@ -196,7 +214,7 @@ defmodule GoogleApi.Gax.Connection do
 
     body =
       Enum.reduce(file_params, body, fn {file_name, file_path}, b ->
-        Tesla.Multipart.add_file(b, file_path, name: file_name)
+        Tesla.Multipart.add_file(b, file_path, name: to_string(file_name))
       end)
 
     Keyword.put(output, :body, body)
